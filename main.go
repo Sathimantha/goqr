@@ -1,14 +1,22 @@
 package main
 
 import (
-	"fmt"
 	"log"
+	"net/http"
+	"os"
 	"path/filepath"
 
 	"github.com/Sathimantha/goqr/certificate"
+	"github.com/gorilla/handlers"
+	"github.com/gorilla/mux"
 )
 
-func main() {
+var (
+	templateDir = filepath.Join(os.Getenv("PWD"), "templates")
+	generator   *certificate.Generator
+)
+
+func init() {
 	// Get absolute path to the current directory
 	currentDir, err := filepath.Abs(".")
 	if err != nil {
@@ -18,15 +26,27 @@ func main() {
 	// Define the path to your font file
 	fontPath := "assets/Roboto-Regular.ttf" // Update this to the actual path of your TTF font
 
-	// Initialize the certificate generator with current directory as base
-	generator := certificate.NewGenerator(currentDir, filepath.Join(currentDir, "generated_files"), fontPath)
+	// Initialize the certificate generator
+	generator = certificate.NewGenerator(currentDir, filepath.Join(currentDir, "generated_files"), fontPath)
+}
 
-	studentName := "WIJEKOON RAJAKEERTHI RATHNAYAKE MUDIYANSELAGE KARANDAGOLLE WALAWWE DINITHI THARUSHA POTHUWILA"
-	studentID := "123456"
+func homeHandler(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, filepath.Join(templateDir, "index.html"))
+}
 
-	path, err := generator.GenerateCertificate(studentName, studentID)
-	if err != nil {
-		log.Fatalf("Error generating certificate: %v\n", err)
-	}
-	fmt.Printf("Certificate saved at: %s\n", path)
+func verifyPageHandler(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, filepath.Join(templateDir, "verify.html"))
+}
+
+// Additional route handlers can be added here
+
+func main() {
+	r := mux.NewRouter()
+	r.Use(handlers.CORS(handlers.AllowedOrigins([]string{"*"})))
+
+	r.HandleFunc("/", homeHandler).Methods("GET")
+	r.HandleFunc("/verify", verifyPageHandler).Methods("GET")
+
+	// Start the server
+	log.Fatal(http.ListenAndServe(":5000", r))
 }
