@@ -21,6 +21,7 @@ dist/
 
 # Generated files
 /generated_files/
+goqr
 *.png
 
 # IDEs and Editors
