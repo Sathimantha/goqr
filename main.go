@@ -19,20 +19,34 @@ var (
 )
 
 func init() {
-	// ... [existing init code] ...
+	// Get absolute path to the current directory
+	currentDir, err := filepath.Abs(".")
+	if err != nil {
+		log.Fatalf("Error getting current directory: %v\n", err)
+	}
+
+	// Define the path to your font file
+	fontPath := "assets/Roboto-Regular.ttf" // Update this to the actual path of your TTF font
+
+	// Initialize the certificate generator
+	generator = certificate.NewGenerator(currentDir, filepath.Join(currentDir, "generated_files"), fontPath)
 }
 
 func homeHandler(w http.ResponseWriter, r *http.Request) {
-	// ... [existing home handler code] ...
+	log.Println("Home handler called")
+	http.ServeFile(w, r, filepath.Join(templateDir, "index.html"))
 }
 
 func verifyPageHandler(w http.ResponseWriter, r *http.Request) {
-	// ... [existing verify handler code] ...
+	log.Println("Verify page handler called")
+	http.ServeFile(w, r, filepath.Join(templateDir, "verify.html"))
 }
 
 // API endpoint to search for a person
 func searchPersonHandler(w http.ResponseWriter, r *http.Request) {
 	searchTerm := r.URL.Query().Get("search")
+	log.Printf("Search person handler called with search term: %s\n", searchTerm)
+
 	if searchTerm == "" {
 		http.Error(w, "Search term is required", http.StatusBadRequest)
 		return
@@ -58,6 +72,7 @@ func searchPersonHandler(w http.ResponseWriter, r *http.Request) {
 func verifyStudentHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	studentId := vars["studentId"]
+	log.Printf("Verify student handler called with student ID: %s\n", studentId)
 
 	if studentId == "" {
 		http.Error(w, "Student ID is required", http.StatusBadRequest)
@@ -86,6 +101,7 @@ func main() {
 	r.HandleFunc("/api/person", searchPersonHandler).Methods("GET")              // New endpoint
 	r.HandleFunc("/api/verify/{studentId}", verifyStudentHandler).Methods("GET") // New endpoint
 
-	// Start the server
-	log.Fatal(http.ListenAndServe(":5001", r))
+	// Start the server and log the status
+	log.Println("Starting server on :5001...")
+	log.Fatal(http.ListenAndServe(":5001", r)) // This will block until the server is stopped
 }
