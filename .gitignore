@@ -1,0 +1,35 @@
+# Go modules
+/vendor/
+*.mod
+*.sum
+
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.out
+*.a
+*.o
+
+# Build directories
+/build/
+bin/
+out/
+dist/
+
+# Generated files
+/generated_files/
+*.png
+
+# IDEs and Editors
+.idea/
+.vscode/
+*.sublime-workspace
+*.sublime-project
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
