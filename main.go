@@ -88,18 +88,24 @@ func generateCertificateHandler(w http.ResponseWriter, r *http.Request) {
 	if _, err := os.Stat(certPath); os.IsNotExist(err) {
 		// If the certificate does not exist, generate it
 		if _, err := secondaryfunctions.GenerateCertificate(person.FullName, person.StudentID); err != nil {
+			log.Printf("Failed to generate certificate: %v", err)
 			http.Error(w, "Failed to generate certificate", http.StatusInternalServerError)
 			return
 		}
 	}
 
-	// Serve the generated certificate
-	http.ServeFile(w, r, certPath)
-
-	// After serving the file, log the stats
+	// Before serving the file, save the stats
 	if err := SaveStats(person.StudentID); err != nil {
 		log.Printf("Error saving stats for %s: %v", person.StudentID, err)
+		// Continue serving the file even if stats saving fails
 	}
+
+	// Set appropriate headers for file download
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s.pdf", person.StudentID))
+
+	// Serve the generated certificate
+	http.ServeFile(w, r, certPath)
 }
 
 // API endpoint to verify a student
@@ -127,17 +133,24 @@ func verifyStudentHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func SaveStats(studentID string) error {
+	if studentID == "" {
+		return fmt.Errorf("student ID cannot be empty")
+	}
+
 	// Create the remark with the timestamp
 	remark := fmt.Sprintf("Certificate downloaded via Go server at %s", time.Now().Format(time.RFC3339))
+
+	// Log the attempt
+	log.Printf("Attempting to save stats for student %s with remark: %s\n", studentID, remark)
 
 	// Log the remark in the database
 	err := secondaryfunctions.AddRemark(studentID, remark)
 	if err != nil {
 		log.Printf("Failed to save stats for student %s: %v\n", studentID, err)
-		return err
+		return fmt.Errorf("failed to save stats: %v", err)
 	}
 
-	log.Printf("Stats saved for student %s: %s\n", studentID, remark)
+	log.Printf("Stats successfully saved for student %s\n", studentID)
 	return nil
 }
 
