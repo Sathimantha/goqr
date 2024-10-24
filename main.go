@@ -199,7 +199,7 @@ func main() {
 		r.HandleFunc("/api/verify/{studentId}", verifyStudentHandler).Methods("GET")                     // Verify student
 
 		// Start the server and log the status
-		log.Println("Starting server on :5001...")
-		log.Fatal(http.ListenAndServe(":5001", r)) // This will block until the server is stopped
+		log.Println("Starting server on :5000...")
+		log.Fatal(http.ListenAndServe(":5000", r)) // This will block until the server is stopped
 	}
 }
