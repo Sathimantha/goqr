@@ -2,7 +2,9 @@ package secondaryfunctions
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql" // Import MySQL driver for MariaDB
 )
@@ -60,3 +62,32 @@ func GetPerson(searchTerm string) *Person {
 }
 
 // Add other DB-related functions (logCertificateDownload, addRemark) here
+func AddRemark(studentID, newRemark string) error {
+	// Fetch the current remark for the student
+	var currentRemark string
+	query := `SELECT remark FROM students WHERE student_id = ?`
+	err := db.QueryRow(query, studentID).Scan(&currentRemark)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			log.Printf("Student with ID %s not found when adding remark.\n", studentID)
+			return fmt.Errorf("student not found")
+		}
+		log.Printf("Error fetching current remark: %v\n", err)
+		return err
+	}
+
+	// Append the new remark with a timestamp
+	timestamp := time.Now().Format(time.RFC3339)
+	updatedRemark := fmt.Sprintf("%s\n%s - %s", currentRemark, timestamp, newRemark)
+
+	// Update the remark in the database
+	updateQuery := `UPDATE students SET remark = ? WHERE student_id = ?`
+	_, err = db.Exec(updateQuery, updatedRemark, studentID)
+	if err != nil {
+		log.Printf("Error updating remark for student %s: %v\n", studentID, err)
+		return err
+	}
+
+	log.Printf("Remark updated for student %s: %s\n", studentID, updatedRemark)
+	return nil
+}

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/Sathimantha/goqr/certificate"
 	"github.com/Sathimantha/goqr/secondaryfunctions"
@@ -83,7 +84,8 @@ func generateCertificateHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if the certificate already exists
-	if _, err := os.Stat(filepath.Join("generated_files", person.StudentID+".pdf")); os.IsNotExist(err) {
+	certPath := filepath.Join("generated_files", person.StudentID+".pdf")
+	if _, err := os.Stat(certPath); os.IsNotExist(err) {
 		// If the certificate does not exist, generate it
 		if _, err := secondaryfunctions.GenerateCertificate(person.FullName, person.StudentID); err != nil {
 			http.Error(w, "Failed to generate certificate", http.StatusInternalServerError)
@@ -92,7 +94,12 @@ func generateCertificateHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Serve the generated certificate
-	http.ServeFile(w, r, filepath.Join("generated_files", person.StudentID+".pdf"))
+	http.ServeFile(w, r, certPath)
+
+	// After serving the file, log the stats
+	if err := SaveStats(person.StudentID); err != nil {
+		log.Printf("Error saving stats for %s: %v", person.StudentID, err)
+	}
 }
 
 // API endpoint to verify a student
@@ -117,6 +124,21 @@ func verifyStudentHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+func SaveStats(studentID string) error {
+	// Create the remark with the timestamp
+	remark := fmt.Sprintf("Certificate downloaded via Go server at %s", time.Now().Format(time.RFC3339))
+
+	// Log the remark in the database
+	err := secondaryfunctions.AddRemark(studentID, remark)
+	if err != nil {
+		log.Printf("Failed to save stats for student %s: %v\n", studentID, err)
+		return err
+	}
+
+	log.Printf("Stats saved for student %s: %s\n", studentID, remark)
+	return nil
 }
 
 func main() {
