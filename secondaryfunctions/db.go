@@ -12,7 +12,8 @@ var db *sql.DB
 func init() {
 	var err error
 	// Configure the Data Source Name (DSN) for MariaDB
-	dsn := "root:password@tcp(127.0.0.1:3306)/students1" // Update password for production
+	dsn := DBConfig.Username + ":" + DBConfig.Password + "@tcp(" + DBConfig.Host + ":" + DBConfig.Port + ")/" + DBConfig.Database
+	log.Println("Connecting to the database...")
 	db, err = sql.Open("mysql", dsn)
 	if err != nil {
 		log.Fatalf("Error connecting to the database: %v", err)
@@ -21,6 +22,8 @@ func init() {
 	if err = db.Ping(); err != nil {
 		log.Fatalf("Database is unreachable: %v", err)
 	}
+
+	log.Println("Database connection established successfully.")
 }
 
 // Person represents the student object in the database
@@ -33,6 +36,7 @@ type Person struct {
 }
 
 func getPerson(searchTerm string) *Person {
+	log.Printf("Searching for person with search term: %s\n", searchTerm)
 	query := `
 		SELECT student_id, full_name, NID, phone_no, remark
 		FROM students 
@@ -43,12 +47,14 @@ func getPerson(searchTerm string) *Person {
 	var person Person
 	if err := row.Scan(&person.StudentID, &person.FullName, &person.NID, &person.PhoneNo, &person.Remark); err != nil {
 		if err == sql.ErrNoRows {
+			log.Println("Person not found.")
 			return nil // Person not found
 		}
-		log.Printf("Error fetching person: %v", err)
+		log.Printf("Error fetching person: %v\n", err)
 		return nil
 	}
 
+	log.Printf("Person found: %+v\n", person)
 	return &person
 }
 

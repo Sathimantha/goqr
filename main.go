@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/Sathimantha/goqr/certificate"
+	"github.com/Sathimantha/goqr/secondaryfunctions" // Import the secondaryfunctions package
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 )
@@ -27,20 +28,32 @@ func init() {
 	fontPath := "assets/Roboto-Regular.ttf" // Update this to the actual path of your TTF font
 
 	// Initialize the certificate generator
+	log.Println("Initializing certificate generator...")
 	generator = certificate.NewGenerator(currentDir, filepath.Join(currentDir, "generated_files"), fontPath)
+	log.Println("Certificate generator initialized successfully.")
+
+	// Initialize database (this will use the init() in secondaryfunctions)
+	log.Println("Initializing database connection...")
+	_ = secondaryfunctions.DBConfig // Just to trigger the init function
+	log.Println("Database connection initialized.")
 }
 
 func homeHandler(w http.ResponseWriter, r *http.Request) {
+	log.Println("Serving home page...")
 	http.ServeFile(w, r, filepath.Join(templateDir, "index.html"))
+	log.Println("Home page served.")
 }
 
 func verifyPageHandler(w http.ResponseWriter, r *http.Request) {
+	log.Println("Serving verify page...")
 	http.ServeFile(w, r, filepath.Join(templateDir, "verify.html"))
+	log.Println("Verify page served.")
 }
 
 // Additional route handlers can be added here
 
 func main() {
+	log.Println("Setting up router...")
 	r := mux.NewRouter()
 	r.Use(handlers.CORS(handlers.AllowedOrigins([]string{"*"})))
 
@@ -48,5 +61,9 @@ func main() {
 	r.HandleFunc("/verify", verifyPageHandler).Methods("GET")
 
 	// Start the server
-	log.Fatal(http.ListenAndServe(":5001", r))
+	log.Println("Starting server on port 5001...")
+	if err := http.ListenAndServe(":5001", r); err != nil {
+		log.Fatalf("Error starting server: %v", err)
+	}
+	log.Println("Server started successfully.")
 }
