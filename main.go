@@ -29,12 +29,36 @@ func init() {
 	}
 
 	// Define the path to your font file
-	fontPath := "assets/Roboto-Regular.ttf" // Update this to the actual path of your TTF font
+	fontPath := "assets/Roboto-Regular.ttf"
 
 	// Initialize the certificate generator
 	generator = certificate.NewGenerator(currentDir, filepath.Join(currentDir, "generated_files"), fontPath)
 }
 
+func setupCORS(router *mux.Router) http.Handler {
+	// Configure CORS
+	headers := handlers.AllowedHeaders([]string{
+		"X-Requested-With",
+		"Content-Type",
+		"Authorization",
+		"Accept",
+		"Origin",
+	})
+	methods := handlers.AllowedMethods([]string{
+		"GET",
+		"POST",
+		"PUT",
+		"DELETE",
+		"OPTIONS",
+	})
+	origins := handlers.AllowedOrigins([]string{"*"})
+	credentials := handlers.AllowCredentials()
+
+	// Return handler with CORS middleware
+	return handlers.CORS(headers, methods, origins, credentials)(router)
+}
+
+// Request handlers
 func homeHandler(w http.ResponseWriter, r *http.Request) {
 	log.Println("Home handler called")
 	http.ServeFile(w, r, filepath.Join(templateDir, "index.html"))
@@ -45,19 +69,18 @@ func verifyPageHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, filepath.Join(templateDir, "verify.html"))
 }
 
-// API endpoint to search for a person
 func searchPersonHandler(w http.ResponseWriter, r *http.Request) {
 	searchTerm := r.URL.Query().Get("search")
 	log.Printf("Search person handler called with search term: %s\n", searchTerm)
 
 	if searchTerm == "" {
-		http.Error(w, "Search term is required", http.StatusBadRequest)
+		sendJSONError(w, "Search term is required", http.StatusBadRequest)
 		return
 	}
 
 	person := secondaryfunctions.GetPerson(searchTerm)
 	if person == nil {
-		http.Error(w, "Person not found", http.StatusNotFound)
+		sendJSONError(w, "Person not found", http.StatusNotFound)
 		return
 	}
 
@@ -65,13 +88,11 @@ func searchPersonHandler(w http.ResponseWriter, r *http.Request) {
 		"full_name":        person.FullName,
 		"NID":              person.NID,
 		"phone_no":         person.PhoneNo,
-		"certificate_link": "/api/generate-certificate/" + person.StudentID, // Link to generate the certificate
+		"certificate_link": "/api/generate-certificate/" + person.StudentID,
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	sendJSONResponse(w, response, http.StatusOK)
 }
 
-// API endpoint to generate a certificate
 func generateCertificateHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	studentId := vars["studentId"]
@@ -79,7 +100,7 @@ func generateCertificateHandler(w http.ResponseWriter, r *http.Request) {
 
 	person := secondaryfunctions.GetPerson(studentId)
 	if person == nil {
-		http.Error(w, "Student not found", http.StatusNotFound)
+		sendJSONError(w, "Student not found", http.StatusNotFound)
 		return
 	}
 
@@ -89,7 +110,7 @@ func generateCertificateHandler(w http.ResponseWriter, r *http.Request) {
 		// If the certificate does not exist, generate it
 		if _, err := secondaryfunctions.GenerateCertificate(person.FullName, person.StudentID); err != nil {
 			log.Printf("Failed to generate certificate: %v", err)
-			http.Error(w, "Failed to generate certificate", http.StatusInternalServerError)
+			sendJSONError(w, "Failed to generate certificate", http.StatusInternalServerError)
 			return
 		}
 	}
@@ -108,28 +129,26 @@ func generateCertificateHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, certPath)
 }
 
-// API endpoint to verify a student
 func verifyStudentHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	studentId := vars["studentId"]
 	log.Printf("Verify student handler called with student ID: %s\n", studentId)
 
 	if studentId == "" {
-		http.Error(w, "Student ID is required", http.StatusBadRequest)
+		sendJSONError(w, "Student ID is required", http.StatusBadRequest)
 		return
 	}
 
 	person := secondaryfunctions.GetPerson(studentId)
 	if person == nil {
-		http.Error(w, "Student not found", http.StatusNotFound)
+		sendJSONError(w, "Student not found", http.StatusNotFound)
 		return
 	}
 
 	response := map[string]interface{}{
 		"full_name": person.FullName,
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	sendJSONResponse(w, response, http.StatusOK)
 }
 
 func SaveStats(studentID string) error {
@@ -154,13 +173,24 @@ func SaveStats(studentID string) error {
 	return nil
 }
 
+// Helper functions for JSON responses
+func sendJSONResponse(w http.ResponseWriter, data interface{}, status int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(data)
+}
+
+func sendJSONError(w http.ResponseWriter, message string, status int) {
+	sendJSONResponse(w, map[string]string{"error": message}, status)
+}
+
 func main() {
 	// Check for command-line arguments
 	if len(os.Args) > 1 {
 		// Use flags to define the command-line options
 		generateCertCmd := flag.NewFlagSet("generate-cert", flag.ExitOnError)
 		studentIDFlag := generateCertCmd.String("id", "", "The Student ID")
-		generateCertCmd.Parse(os.Args[2:]) // Parse flags after the command
+		generateCertCmd.Parse(os.Args[2:])
 
 		switch os.Args[1] {
 		case "generate-cert":
@@ -188,18 +218,33 @@ func main() {
 			log.Fatalf("Unknown command: %s", os.Args[1])
 		}
 	} else {
-		// If no command-line arguments, start the server as usual
+		// Create and configure the router
 		r := mux.NewRouter()
-		r.Use(handlers.CORS(handlers.AllowedOrigins([]string{"*"})))
 
-		r.HandleFunc("/", homeHandler).Methods("GET")
-		r.HandleFunc("/verify", verifyPageHandler).Methods("GET")
-		r.HandleFunc("/api/person", searchPersonHandler).Methods("GET")                                  // Search person
-		r.HandleFunc("/api/generate-certificate/{studentId}", generateCertificateHandler).Methods("GET") // New endpoint for generating certificates
-		r.HandleFunc("/api/verify/{studentId}", verifyStudentHandler).Methods("GET")                     // Verify student
+		// Add route handlers
+		r.HandleFunc("/", homeHandler).Methods("GET", "OPTIONS")
+		r.HandleFunc("/verify", verifyPageHandler).Methods("GET", "OPTIONS")
+		r.HandleFunc("/api/person", searchPersonHandler).Methods("GET", "OPTIONS")
+		r.HandleFunc("/api/generate-certificate/{studentId}", generateCertificateHandler).Methods("GET", "OPTIONS")
+		r.HandleFunc("/api/verify/{studentId}", verifyStudentHandler).Methods("GET", "OPTIONS")
 
-		// Start the server and log the status
+		// Add middleware to handle preflight requests
+		r.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Handle preflight requests
+				if r.Method == "OPTIONS" {
+					w.WriteHeader(http.StatusOK)
+					return
+				}
+				next.ServeHTTP(w, r)
+			})
+		})
+
+		// Setup CORS and create the final handler
+		corsHandler := setupCORS(r)
+
+		// Start the server
 		log.Println("Starting server on :5000...")
-		log.Fatal(http.ListenAndServe(":5000", r)) // This will block until the server is stopped
+		log.Fatal(http.ListenAndServe(":5000", corsHandler))
 	}
 }
