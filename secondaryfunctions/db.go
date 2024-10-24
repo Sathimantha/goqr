@@ -35,7 +35,8 @@ type Person struct {
 	Remark    string // remark
 }
 
-func getPerson(searchTerm string) *Person {
+// Exported function to get a person by search term
+func GetPerson(searchTerm string) *Person {
 	log.Printf("Searching for person with search term: %s\n", searchTerm)
 	query := `
 		SELECT student_id, full_name, NID, phone_no, remark

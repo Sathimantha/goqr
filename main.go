@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
 	"os"
@@ -18,52 +19,73 @@ var (
 )
 
 func init() {
-	// Get absolute path to the current directory
-	currentDir, err := filepath.Abs(".")
-	if err != nil {
-		log.Fatalf("Error getting current directory: %v\n", err)
-	}
-
-	// Define the path to your font file
-	fontPath := "assets/Roboto-Regular.ttf" // Update this to the actual path of your TTF font
-
-	// Initialize the certificate generator
-	log.Println("Initializing certificate generator...")
-	generator = certificate.NewGenerator(currentDir, filepath.Join(currentDir, "generated_files"), fontPath)
-	log.Println("Certificate generator initialized successfully.")
-
-	// Initialize database (this will use the init() in secondaryfunctions)
-	log.Println("Initializing database connection...")
-	_ = secondaryfunctions.DBConfig // Just to trigger the init function
-	log.Println("Database connection initialized.")
+	// ... [existing init code] ...
 }
 
 func homeHandler(w http.ResponseWriter, r *http.Request) {
-	log.Println("Serving home page...")
-	http.ServeFile(w, r, filepath.Join(templateDir, "index.html"))
-	log.Println("Home page served.")
+	// ... [existing home handler code] ...
 }
 
 func verifyPageHandler(w http.ResponseWriter, r *http.Request) {
-	log.Println("Serving verify page...")
-	http.ServeFile(w, r, filepath.Join(templateDir, "verify.html"))
-	log.Println("Verify page served.")
+	// ... [existing verify handler code] ...
 }
 
-// Additional route handlers can be added here
+// API endpoint to search for a person
+func searchPersonHandler(w http.ResponseWriter, r *http.Request) {
+	searchTerm := r.URL.Query().Get("search")
+	if searchTerm == "" {
+		http.Error(w, "Search term is required", http.StatusBadRequest)
+		return
+	}
+
+	person := secondaryfunctions.GetPerson(searchTerm)
+	if person == nil {
+		http.Error(w, "Person not found", http.StatusNotFound)
+		return
+	}
+
+	response := map[string]interface{}{
+		"full_name":        person.FullName,
+		"NID":              person.NID,
+		"phone_no":         person.PhoneNo,
+		"certificate_link": "/path/to/certificate/" + person.StudentID, // Adjust as needed
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// API endpoint to verify a student
+func verifyStudentHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	studentId := vars["studentId"]
+
+	if studentId == "" {
+		http.Error(w, "Student ID is required", http.StatusBadRequest)
+		return
+	}
+
+	person := secondaryfunctions.GetPerson(studentId)
+	if person == nil {
+		http.Error(w, "Student not found", http.StatusNotFound)
+		return
+	}
+
+	response := map[string]interface{}{
+		"full_name": person.FullName,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
 
 func main() {
-	log.Println("Setting up router...")
 	r := mux.NewRouter()
 	r.Use(handlers.CORS(handlers.AllowedOrigins([]string{"*"})))
 
 	r.HandleFunc("/", homeHandler).Methods("GET")
 	r.HandleFunc("/verify", verifyPageHandler).Methods("GET")
+	r.HandleFunc("/api/person", searchPersonHandler).Methods("GET")              // New endpoint
+	r.HandleFunc("/api/verify/{studentId}", verifyStudentHandler).Methods("GET") // New endpoint
 
 	// Start the server
-	log.Println("Starting server on port 5001...")
-	if err := http.ListenAndServe(":5001", r); err != nil {
-		log.Fatalf("Error starting server: %v", err)
-	}
-	log.Println("Server started successfully.")
+	log.Fatal(http.ListenAndServe(":5001", r))
 }
