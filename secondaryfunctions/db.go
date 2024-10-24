@@ -7,25 +7,6 @@ import (
 	_ "github.com/go-sql-driver/mysql" // Import MySQL driver for MariaDB
 )
 
-var db *sql.DB
-
-func init() {
-	var err error
-	// Configure the Data Source Name (DSN) for MariaDB
-	dsn := DBConfig.Username + ":" + DBConfig.Password + "@tcp(" + DBConfig.Host + ":" + DBConfig.Port + ")/" + DBConfig.Database
-	log.Println("Connecting to the database...")
-	db, err = sql.Open("mysql", dsn)
-	if err != nil {
-		log.Fatalf("Error connecting to the database: %v", err)
-	}
-
-	if err = db.Ping(); err != nil {
-		log.Fatalf("Database is unreachable: %v", err)
-	}
-
-	log.Println("Database connection established successfully.")
-}
-
 // Person represents the student object in the database
 type Person struct {
 	StudentID string  // student_id
@@ -35,8 +16,24 @@ type Person struct {
 	Remark    *string // remark (changed to pointer)
 }
 
-// Exported function to get a person by search term
-func getPerson(searchTerm string) *Person {
+var db *sql.DB
+
+func init() {
+	var err error
+	// Configure the Data Source Name (DSN) for MariaDB
+	dsn := "root:password@tcp(127.0.0.1:3306)/students1" // Update password for production
+	db, err = sql.Open("mysql", dsn)
+	if err != nil {
+		log.Fatalf("Error connecting to the database: %v", err)
+	}
+
+	if err = db.Ping(); err != nil {
+		log.Fatalf("Database is unreachable: %v", err)
+	}
+}
+
+// GetPerson retrieves a person's details based on the search term
+func GetPerson(searchTerm string) *Person {
 	query := `
 		SELECT student_id, full_name, NID, phone_no, remark
 		FROM students 
@@ -62,5 +59,3 @@ func getPerson(searchTerm string) *Person {
 
 	return &person
 }
-
-// Add other DB-related functions (logCertificateDownload, addRemark) here
