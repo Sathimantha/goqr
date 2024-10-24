@@ -58,11 +58,21 @@ func searchPersonHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check for certificate existence
+	certificatePath := filepath.Join("generated_files", person.StudentID+".pdf") // Adjust based on your actual certificate naming
+	if _, err := os.Stat(certificatePath); os.IsNotExist(err) {
+		// If the certificate does not exist, generate it
+		if _, err := secondaryfunctions.GenerateCertificate(person.FullName, person.StudentID); err != nil {
+			http.Error(w, "Failed to generate certificate", http.StatusInternalServerError)
+			return
+		}
+	}
+
 	response := map[string]interface{}{
 		"full_name":        person.FullName,
 		"NID":              person.NID,
 		"phone_no":         person.PhoneNo,
-		"certificate_link": "/path/to/certificate/" + person.StudentID, // Adjust as needed
+		"certificate_link": "/generated_files/" + person.StudentID + ".pdf", // Adjust as needed
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
