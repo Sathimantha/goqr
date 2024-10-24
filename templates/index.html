@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Certificate Lookup</title>
+    <style>
+        /* ... (styles remain unchanged) ... */
+    </style>
+</head>
+<body>
+    <h1>Certificate Lookup</h1>
+    
+    <div id="searchSection">
+        <input type="text" id="searchInput" placeholder="Enter Full Name or NID">
+        <button onclick="searchPerson()">Search</button>
+        <button onclick="resetSearch()">Reset</button>
+    </div>
+
+    <div id="personInfo" class="hidden"></div>
+    <div id="errorMessage" class="hidden"></div>
+
+    <script>
+        function searchPerson() {
+            const searchTerm = document.getElementById('searchInput').value;
+            fetch(`/api/person?search=${encodeURIComponent(searchTerm)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        showError(data.error);
+                    } else {
+                        displayPersonInfo(data);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showError('An error occurred while searching. Please try again.');
+                });
+        }
+
+        function displayPersonInfo(person) {
+            const personInfoDiv = document.getElementById('personInfo');
+            personInfoDiv.innerHTML = `
+                <h2>Person Information</h2>
+                <p><strong>Full Name:</strong> ${person.full_name}</p>
+                <p><strong>NID:</strong> ${person.NID}</p>
+                <p><strong>Phone:</strong> ${person.phone_no}</p>
+                <p><a href="${person.certificate_link}" target="_blank" class="download-link">Download Certificate</a></p>
+            `;
+            personInfoDiv.classList.remove('hidden');
+            document.getElementById('errorMessage').classList.add('hidden');
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('errorMessage');
+            errorDiv.textContent = message;
+            errorDiv.classList.remove('hidden');
+            document.getElementById('personInfo').classList.add('hidden');
+        }
+
+        function resetSearch() {
+            document.getElementById('searchInput').value = '';
+            document.getElementById('personInfo').classList.add('hidden');
+            document.getElementById('errorMessage').classList.add('hidden');
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Verification</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        .container {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        h1 {
+            color: #333;
+        }
+        #verificationResult {
+            margin-top: 1rem;
+            font-size: 1.2rem;
+        }
+        .loading {
+            display: none;
+            margin-top: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="verificationResult">Verifying...</div>
+        <div class="loading">Loading...</div>
+    </div>
+
+    <script>
+        function getStudentIdFromUrl() {
+            var currentUrl = window.location.href;
+            var urlNumber = currentUrl.match(/#(\d+)/);
+            return urlNumber ? urlNumber[1] : null;
+        }
+
+        function verifyStudent(studentId) {
+            const resultElement = document.getElementById("verificationResult");
+            const loadingElement = document.querySelector(".loading");
+
+            if (!studentId) {
+                resultElement.innerHTML = "No student ID provided in the URL.";
+                return;
+            }
+
+            loadingElement.style.display = "block";
+            resultElement.innerHTML = "Verifying...";
+
+            fetch(`https://cdn.cpcglobal.org:5000/api/verify/${studentId}`)
+                .then(response => response.json())
+                .then(data => {
+                    loadingElement.style.display = "none";
+                    if (data.full_name) {
+                        resultElement.innerHTML = `<h4>Status: <span style="color:green;">Verified ✅</span></h4><br><h5><b>Name:</b> ${data.full_name}<h5><p><b>Course Completion Date:</b> 31/08/2024</p>`;
+                    } else {
+                        resultElement.innerHTML = "Student not found.";
+                    }
+                })
+                .catch(error => {
+                    loadingElement.style.display = "none";
+                    console.error('Error:', error);
+                    resultElement.innerHTML = "Error verifying student. Please try again later.";
+                });
+        }
+
+        // Run verification when the page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            const studentId = getStudentIdFromUrl();
+            verifyStudent(studentId);
+        });
+    </script>
+</body>
+</html>

@@ -48,5 +48,5 @@ func main() {
 	r.HandleFunc("/verify", verifyPageHandler).Methods("GET")
 
 	// Start the server
-	log.Fatal(http.ListenAndServe(":5000", r))
+	log.Fatal(http.ListenAndServe(":5001", r))
 }
