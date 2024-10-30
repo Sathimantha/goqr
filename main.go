@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Sathimantha/goqr/certificate"
@@ -84,10 +85,18 @@ func searchPersonHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Obfuscate the phone number
+	phoneNo := person.PhoneNo
+	if len(phoneNo) > 4 {
+		phoneNo = strings.Repeat("*", len(phoneNo)-4) + phoneNo[len(phoneNo)-4:]
+	} else {
+		phoneNo = phoneNo // Return as-is if the phone number is too short
+	}
+
 	response := map[string]interface{}{
 		"full_name":        person.FullName,
 		"NID":              person.NID,
-		"phone_no":         person.PhoneNo,
+		"phone_no":         phoneNo,
 		"certificate_link": "/api/generate-certificate/" + person.StudentID,
 	}
 	sendJSONResponse(w, response, http.StatusOK)
