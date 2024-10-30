@@ -52,11 +52,11 @@ func setupCORS(router *mux.Router) http.Handler {
 		"DELETE",
 		"OPTIONS",
 	})
-	origins := handlers.AllowedOrigins([]string{"*"})
-	credentials := handlers.AllowCredentials()
+	// Allow specific origin
+	origins := handlers.AllowedOrigins([]string{"https://cpcglobal.org"})
 
 	// Return handler with CORS middleware
-	return handlers.CORS(headers, methods, origins, credentials)(router)
+	return handlers.CORS(headers, methods, origins)(router)
 }
 
 // Request handlers

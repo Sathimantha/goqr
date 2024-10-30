@@ -59,7 +59,7 @@
             loadingElement.style.display = "block";
             resultElement.innerHTML = "Verifying...";
 
-            fetch(`https://cdn.cpcglobal.org:5000/api/verify/${studentId}`)
+            fetch(`/api/verify/${studentId}`)
                 .then(response => response.json())
                 .then(data => {
                     loadingElement.style.display = "none";
