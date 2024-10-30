@@ -156,6 +156,7 @@ func verifyStudentHandler(w http.ResponseWriter, r *http.Request) {
 
 	response := map[string]interface{}{
 		"full_name": person.FullName,
+		"NID":       person.NID,
 	}
 	sendJSONResponse(w, response, http.StatusOK)
 }
