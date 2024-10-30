@@ -53,7 +53,7 @@ func setupCORS(router *mux.Router) http.Handler {
 		"OPTIONS",
 	})
 	// Allow specific origin
-	origins := handlers.AllowedOrigins([]string{"https://cpcglobal.org"})
+	origins := handlers.AllowedOrigins([]string{"*"})
 
 	// Return handler with CORS middleware
 	return handlers.CORS(headers, methods, origins)(router)
@@ -252,8 +252,15 @@ func main() {
 		// Setup CORS and create the final handler
 		corsHandler := setupCORS(r)
 
-		// Start the server
-		log.Println("Starting server on :5000...")
-		log.Fatal(http.ListenAndServe(":5000", corsHandler))
+		certFile := os.Getenv("CERT_FILE")
+		keyFile := os.Getenv("KEY_FILE")
+		// Ensure both cert and key files are defined
+		if certFile == "" || keyFile == "" {
+			log.Fatal("CERT_FILE and KEY_FILE must be defined in the .env file")
+		}
+
+		// Start the server with TLS
+		log.Println("Starting server on :5000 with SSL...")
+		log.Fatal(http.ListenAndServeTLS(":5000", certFile, keyFile, corsHandler))
 	}
 }
