@@ -124,8 +124,11 @@ func generateCertificateHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Before serving the file, save the stats
-	if err := SaveStats(person.StudentID); err != nil {
+	// Extract client IP address from the request
+	clientIP := strings.Split(r.RemoteAddr, ":")[0]
+
+	// Save the stats with the client IP
+	if err := SaveStats(person.StudentID, clientIP); err != nil {
 		log.Printf("Error saving stats for %s: %v", person.StudentID, err)
 		// Continue serving the file even if stats saving fails
 	}
@@ -161,13 +164,13 @@ func verifyStudentHandler(w http.ResponseWriter, r *http.Request) {
 	sendJSONResponse(w, response, http.StatusOK)
 }
 
-func SaveStats(studentID string) error {
+func SaveStats(studentID string, clientIP string) error {
 	if studentID == "" {
 		return fmt.Errorf("student ID cannot be empty")
 	}
 
-	// Create the remark with the timestamp
-	remark := fmt.Sprintf("Certificate downloaded via Go server at %s", time.Now().Format(time.RFC3339))
+	// Create the remark with the timestamp and client IP
+	remark := fmt.Sprintf("Certificate downloaded via Go server at %s from IP %s", time.Now().Format(time.RFC3339), clientIP)
 
 	// Log the attempt
 	log.Printf("Attempting to save stats for student %s with remark: %s\n", studentID, remark)
