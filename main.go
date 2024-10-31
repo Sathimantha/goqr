@@ -54,7 +54,7 @@ func setupCORS(router *mux.Router) http.Handler {
 		"OPTIONS",
 	})
 	// Allow specific origin
-	origins := handlers.AllowedOrigins([]string{"https://cpcglobal.org/free-basic-counselling-2024-certificate-download/"})
+	origins := handlers.AllowedOrigins([]string{"https://cpcglobal.org"})
 
 	// Return handler with CORS middleware
 	return handlers.CORS(headers, methods, origins)(router)
