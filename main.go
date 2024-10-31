@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -74,8 +75,15 @@ func searchPersonHandler(w http.ResponseWriter, r *http.Request) {
 	searchTerm := r.URL.Query().Get("search")
 	log.Printf("Search person handler called with search term: %s\n", searchTerm)
 
+	// Check if the search term is empty
 	if searchTerm == "" {
 		sendJSONError(w, "Search term is required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate the search term
+	if !isValidSearchTerm(searchTerm) {
+		sendJSONError(w, "Invalid search term", http.StatusBadRequest)
 		return
 	}
 
@@ -89,8 +97,6 @@ func searchPersonHandler(w http.ResponseWriter, r *http.Request) {
 	phoneNo := person.PhoneNo
 	if len(phoneNo) > 4 {
 		phoneNo = strings.Repeat("*", len(phoneNo)-4) + phoneNo[len(phoneNo)-4:]
-	} else {
-		phoneNo = phoneNo // Return as-is if the phone number is too short
 	}
 
 	response := map[string]interface{}{
@@ -100,6 +106,13 @@ func searchPersonHandler(w http.ResponseWriter, r *http.Request) {
 		"certificate_link": "/api/generate-certificate/" + person.StudentID,
 	}
 	sendJSONResponse(w, response, http.StatusOK)
+}
+
+// Helper function to validate search terms
+func isValidSearchTerm(term string) bool {
+	// Regular expression to match allowed characters and length up to 150
+	validTerm := regexp.MustCompile(`^[a-zA-Z0-9 +\-]{1,150}$`)
+	return validTerm.MatchString(term)
 }
 
 func generateCertificateHandler(w http.ResponseWriter, r *http.Request) {
