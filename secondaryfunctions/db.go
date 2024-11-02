@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql" // Import MySQL driver for MariaDB
+	_ "github.com/go-sql-driver/mysql"
 )
 
 var db *sql.DB
@@ -25,7 +25,6 @@ var ValidationPatterns = struct {
 
 func init() {
 	var err error
-	// Configure the Data Source Name (DSN) for MariaDB
 	dsn := DBConfig.Username + ":" + DBConfig.Password + "@tcp(" + DBConfig.Host + ":" + DBConfig.Port + ")/" + DBConfig.Database
 	log.Println("Connecting to the database...")
 	db, err = sql.Open("mysql", dsn)
@@ -42,43 +41,75 @@ func init() {
 
 // Person represents the student object in the database
 type Person struct {
-	StudentID string // student_id
-	FullName  string // full_name
-	NID       string // NID
-	PhoneNo   string // phone_no
-	Remark    string // remark
+	StudentID string
+	FullName  string
+	NID       string
+	PhoneNo   string
+	Remark    string
 }
 
-// isValidSearchTerm validates the search term before querying the database
-func isValidSearchTerm(term string) bool {
+// LogError logs any type of error to the errors table
+func LogError(errorType string, remark string) error {
+	query := `
+        INSERT INTO errors (
+            timestamp, 
+            error_type, 
+            remark
+        ) VALUES (?, ?, ?)
+    `
+
+	_, err := db.Exec(
+		query,
+		time.Now(),
+		errorType,
+		remark,
+	)
+
+	if err != nil {
+		log.Printf("Error logging to errors table: %v\n", err)
+		return err
+	}
+
+	return nil
+}
+
+func isValidSearchTerm(term, requestIP string) bool {
 	if term == "" || len(term) > 150 {
+		remark := fmt.Sprintf("Request IP: %s | Empty or oversized search term received: %s", requestIP, term)
+		if err := LogError("validation_failure", remark); err != nil {
+			log.Printf("Failed to log error: %v\n", err)
+		}
 		return false
 	}
 
-	// Check if the term matches any of the valid patterns
-	return ValidationPatterns.StudentID.MatchString(term) ||
+	isValid := ValidationPatterns.StudentID.MatchString(term) ||
 		ValidationPatterns.Name.MatchString(term) ||
 		ValidationPatterns.NID.MatchString(term)
+
+	if !isValid {
+		remark := fmt.Sprintf("Request IP: %s | Invalid search term pattern: %s", requestIP, term)
+		if err := LogError("validation_failure", remark); err != nil {
+			log.Printf("Failed to log error: %v\n", err)
+		}
+	}
+
+	return isValid
 }
 
-// GetPerson retrieves a person from the database based on the search term
-func GetPerson(searchTerm string) *Person {
-	log.Printf("Validating search term: %s\n", searchTerm)
+func GetPerson(searchTerm, requestIP string) *Person {
+	log.Printf("Validating search term: %s from IP: %s\n", searchTerm, requestIP)
 
-	// Validate the search term before attempting any database operations
-	if !isValidSearchTerm(searchTerm) {
+	if !isValidSearchTerm(searchTerm, requestIP) {
 		log.Printf("Search term validation failed: %s\n", searchTerm)
 		return nil
 	}
 
-	log.Printf("Searching for person with validated search term: %s\n", searchTerm)
-
 	query := `
-			SELECT student_id, full_name, NID, phone_no, remark
-			FROM students
-			WHERE student_id = ?
-   				OR LOWER(full_name) = LOWER(?)
-   				OR REPLACE(NID, ' ', '') = REPLACE(?, ' ', '');
+		SELECT student_id, full_name, NID, phone_no, remark
+		FROM students
+		WHERE student_id = ?
+			OR LOWER(full_name) = LOWER(?)
+			OR REPLACE(NID, ' ', '') = REPLACE(?, ' ', '');
 	`
 
 	row := db.QueryRow(query, searchTerm, searchTerm, searchTerm)
@@ -86,44 +117,48 @@ func GetPerson(searchTerm string) *Person {
 	var person Person
 	if err := row.Scan(&person.StudentID, &person.FullName, &person.NID, &person.PhoneNo, &person.Remark); err != nil {
 		if err == sql.ErrNoRows {
-			log.Println("Person not found.")
+			remark := fmt.Sprintf("Request IP: %s | No matching record found for search term: %s", requestIP, searchTerm)
+			LogError("record_not_found", remark)
 			return nil
 		}
-		log.Printf("Error fetching person: %v\n", err)
+		remark := fmt.Sprintf("Request IP: %s | Database error while fetching person: %s | Error: %v",
+			requestIP, searchTerm, err)
+		LogError("database_error", remark)
 		return nil
 	}
 
-	log.Printf("Person found: %+v\n", person)
 	return &person
 }
 
-// Add other DB-related functions (logCertificateDownload, addRemark) here
-func AddRemark(studentID, newRemark string) error {
-	// Fetch the current remark for the student
+func AddRemark(studentID, newRemark, requestIP string) error {
 	var currentRemark string
 	query := `SELECT remark FROM students WHERE student_id = ?`
 	err := db.QueryRow(query, studentID).Scan(&currentRemark)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			log.Printf("Student with ID %s not found when adding remark.\n", studentID)
+			remark := fmt.Sprintf("Request IP: %s | Student not found when adding remark: %s",
+				requestIP, studentID)
+			LogError("student_not_found", remark)
 			return fmt.Errorf("student not found")
 		}
-		log.Printf("Error fetching current remark: %v\n", err)
+		remark := fmt.Sprintf("Request IP: %s | Database error while fetching current remark for student: %s | Error: %v",
+			requestIP, studentID, err)
+		LogError("database_error", remark)
 		return err
 	}
 
-	// Append the new remark with a timestamp
 	timestamp := time.Now().Format(time.RFC3339)
 	updatedRemark := fmt.Sprintf("%s\n%s - %s", currentRemark, timestamp, newRemark)
 
-	// Update the remark in the database
 	updateQuery := `UPDATE students SET remark = ? WHERE student_id = ?`
 	_, err = db.Exec(updateQuery, updatedRemark, studentID)
 	if err != nil {
-		log.Printf("Error updating remark for student %s: %v\n", studentID, err)
+		remark := fmt.Sprintf("Request IP: %s | Error updating remark for student: %s | Error: %v",
+			requestIP, studentID, err)
+		LogError("database_error", remark)
 		return err
 	}
 
-	log.Printf("Remark updated for student %s: %s\n", studentID, updatedRemark)
+	log.Printf("Remark updated for student %s\n", studentID)
 	return nil
 }
