@@ -74,6 +74,7 @@ func LogError(errorType string, remark string) error {
 }
 
 func isValidSearchTerm(term, requestIP string) bool {
+	// Check if term is empty or exceeds length limit
 	if term == "" || len(term) > 150 {
 		remark := fmt.Sprintf("Request IP: %s | Empty or oversized search term received: %s", requestIP, term)
 		if err := LogError("validation_failure", remark); err != nil {
@@ -82,6 +83,19 @@ func isValidSearchTerm(term, requestIP string) bool {
 		return false
 	}
 
+	// Remove allowed characters (letters, numbers, spaces, hyphens, periods)
+	cleanedTerm := regexp.MustCompile(`[^A-Za-z0-9 .-]`).ReplaceAllString(term, "")
+
+	// Check if the term is blank after cleanup
+	if cleanedTerm == "" {
+		remark := fmt.Sprintf("Request IP: %s | Search term resulted in blank after cleanup: %s", requestIP, term)
+		if err := LogError("validation_failure", remark); err != nil {
+			log.Printf("Failed to log error: %v\n", err)
+		}
+		return false
+	}
+
+	// Validate term against known patterns
 	isValid := ValidationPatterns.StudentID.MatchString(term) ||
 		ValidationPatterns.Name.MatchString(term) ||
 		ValidationPatterns.NID.MatchString(term)
