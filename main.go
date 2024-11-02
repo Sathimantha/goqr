@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,7 +44,7 @@ func handleCommandLine() error {
 	cleanupCmd := flag.NewFlagSet("cleanup", flag.ExitOnError)
 
 	// Flags for generate-cert
-	studentIDFlag := generateCertCmd.String("id", "", "The Student ID")
+	studentIDFlag := generateCertCmd.String("id", "", "The Student ID or range (e.g., 'ST001' or 'ST001-ST010')")
 
 	// Flags for cleanup
 	daysOldFlag := cleanupCmd.Int("days", 10, "Delete files older than specified days")
@@ -55,7 +56,7 @@ func handleCommandLine() error {
 			return fmt.Errorf("error parsing generate-cert flags: %v", err)
 		}
 		if *studentIDFlag == "" {
-			return fmt.Errorf("student ID is required")
+			return fmt.Errorf("student ID or range is required")
 		}
 
 		return handleGenerateCert(*studentIDFlag)
@@ -72,8 +73,79 @@ func handleCommandLine() error {
 	}
 }
 
+func parseIDRange(idRange string) (start, end string, err error) {
+	parts := strings.Split(idRange, "-")
+	if len(parts) == 1 {
+		// Single ID
+		return parts[0], parts[0], nil
+	} else if len(parts) == 2 {
+		// Range of IDs
+		start, end = strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+		if start == "" || end == "" {
+			return "", "", fmt.Errorf("invalid ID range format: %s", idRange)
+		}
+		return start, end, nil
+	}
+	return "", "", fmt.Errorf("invalid ID range format: %s", idRange)
+}
+
+func generateNextID(currentID string) (string, error) {
+	// Extract the numeric part
+	i := len(currentID) - 1
+	for i >= 0 && (currentID[i] >= '0' && currentID[i] <= '9') {
+		i--
+	}
+	prefix := currentID[:i+1]
+	numStr := currentID[i+1:]
+
+	// Convert to number and increment
+	num, err := strconv.Atoi(numStr)
+	if err != nil {
+		return "", fmt.Errorf("invalid ID format: %s", currentID)
+	}
+
+	// Generate next ID with same padding
+	padding := len(numStr)
+	nextNum := num + 1
+	nextNumStr := fmt.Sprintf("%0*d", padding, nextNum)
+
+	return prefix + nextNumStr, nil
+}
+
 // handleGenerateCert handles the certificate generation command
-func handleGenerateCert(studentID string) error {
+func handleGenerateCert(idRange string) error {
+	start, end, err := parseIDRange(idRange)
+	if err != nil {
+		return err
+	}
+
+	// For single ID case
+	if start == end {
+		return generateSingleCertificate(start)
+	}
+
+	// For range of IDs
+	currentID := start
+	for {
+		if err := generateSingleCertificate(currentID); err != nil {
+			return fmt.Errorf("failed at ID %s: %v", currentID, err)
+		}
+
+		if currentID == end {
+			break
+		}
+
+		nextID, err := generateNextID(currentID)
+		if err != nil {
+			return fmt.Errorf("failed to generate next ID after %s: %v", currentID, err)
+		}
+
+		currentID = nextID
+	}
+
+	return nil
+}
+func generateSingleCertificate(studentID string) error {
 	person := secondaryfunctions.GetPerson(studentID, "CLI")
 	if person == nil {
 		return fmt.Errorf("student not found: %s", studentID)
@@ -83,7 +155,7 @@ func handleGenerateCert(studentID string) error {
 		return fmt.Errorf("failed to generate certificate for %s: %v", person.FullName, err)
 	}
 
-	fmt.Printf("Certificate successfully generated for %s\n", person.FullName)
+	fmt.Printf("Certificate successfully generated for %s (%s)\n", person.FullName, person.StudentID)
 	return nil
 }
 

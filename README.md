@@ -1,8 +1,17 @@
 # 1. Start the server
-./your-program
+./goqr
 
 # 2. Generate a certificate
-./your-program generate-cert -id STUDENT123
+./goqr generate-cert -id S123
+or for a range
+./goqr generate-cert -id S123-S223
 
 # 3. Clean up old files
-./your-program cleanup -days 10 
+./goqr cleanup -days 20 
+
+
+
+## Cronjob to automate cleanups
+crontab -e
+
+0 2 * * * /home/bitnami/work/goqr/./goqr cleanup -days 20 >> /home/bitnami/work/goqr/cleanup.log 2>&1
