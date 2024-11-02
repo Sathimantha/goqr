@@ -122,11 +122,12 @@ func GetPerson(searchTerm, requestIP string) *Person {
 		SELECT student_id, full_name, NID, phone_no, remark
 		FROM students
 		WHERE student_id = ?
-			OR LOWER(REGEXP_REPLACE(full_name, '[^A-Za-z0-9]', '')) = 
+		OR LOWER(REGEXP_REPLACE(full_name, '[^A-Za-z0-9]', '')) = 
 			LOWER(REGEXP_REPLACE(?, '[^A-Za-z0-9]', ''))
-			OR LOWER(REGEXP_REPLACE(NID, '[^A-Za-z0-9]', '')) = 
-			LOWER(REGEXP_REPLACE(?, '[^A-Za-z0-9]', ''));
-	`
+		OR LOWER(REGEXP_REPLACE(NID, '[^A-Za-z0-9]', '')) = 
+			LOWER(REGEXP_REPLACE(?, '[^A-Za-z0-9]', ''))
+		OR REGEXP_REPLACE(NID, '[^0-9]', '') LIKE CONCAT('%', REGEXP_REPLACE(?, '[^0-9]', ''), '%');
+		`
 
 	row := db.QueryRow(query, searchTerm, searchTerm, searchTerm)
 
