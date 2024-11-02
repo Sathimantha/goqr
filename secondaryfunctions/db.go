@@ -4,12 +4,24 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"regexp"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql" // Import MySQL driver for MariaDB
 )
 
 var db *sql.DB
+
+// ValidationPatterns holds the regex patterns for different types of search terms
+var ValidationPatterns = struct {
+	StudentID *regexp.Regexp
+	Name      *regexp.Regexp
+	NID       *regexp.Regexp
+}{
+	StudentID: regexp.MustCompile(`^[A-Z0-9]{1,10}$`),
+	Name:      regexp.MustCompile(`^[^;'\\"#]{1,150}$`),
+	NID:       regexp.MustCompile(`^[^;'\\"#]{5,30}$`),
+}
 
 func init() {
 	var err error
@@ -37,21 +49,45 @@ type Person struct {
 	Remark    string // remark
 }
 
-// Exported function to get a person by search term
+// isValidSearchTerm validates the search term before querying the database
+func isValidSearchTerm(term string) bool {
+	if term == "" || len(term) > 150 {
+		return false
+	}
+
+	// Check if the term matches any of the valid patterns
+	return ValidationPatterns.StudentID.MatchString(term) ||
+		ValidationPatterns.Name.MatchString(term) ||
+		ValidationPatterns.NID.MatchString(term)
+}
+
+// GetPerson retrieves a person from the database based on the search term
 func GetPerson(searchTerm string) *Person {
-	log.Printf("Searching for person with search term: %s\n", searchTerm)
+	log.Printf("Validating search term: %s\n", searchTerm)
+
+	// Validate the search term before attempting any database operations
+	if !isValidSearchTerm(searchTerm) {
+		log.Printf("Search term validation failed: %s\n", searchTerm)
+		return nil
+	}
+
+	log.Printf("Searching for person with validated search term: %s\n", searchTerm)
+
 	query := `
-		SELECT student_id, full_name, NID, phone_no, remark
-		FROM students 
-		WHERE student_id = ? OR LOWER(full_name) = LOWER(?) OR NID = ?
+			SELECT student_id, full_name, NID, phone_no, remark
+			FROM students
+			WHERE student_id = ?
+   				OR LOWER(full_name) = LOWER(?)
+   				OR REPLACE(NID, ' ', '') = REPLACE(?, ' ', '');
 	`
+
 	row := db.QueryRow(query, searchTerm, searchTerm, searchTerm)
 
 	var person Person
 	if err := row.Scan(&person.StudentID, &person.FullName, &person.NID, &person.PhoneNo, &person.Remark); err != nil {
 		if err == sql.ErrNoRows {
 			log.Println("Person not found.")
-			return nil // Person not found
+			return nil
 		}
 		log.Printf("Error fetching person: %v\n", err)
 		return nil

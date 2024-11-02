@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -81,12 +80,6 @@ func searchPersonHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate the search term
-	if !isValidSearchTerm(searchTerm) {
-		sendJSONError(w, "Invalid search term", http.StatusBadRequest)
-		return
-	}
-
 	person := secondaryfunctions.GetPerson(searchTerm)
 	if person == nil {
 		sendJSONError(w, "Person not found", http.StatusNotFound)
@@ -106,13 +99,6 @@ func searchPersonHandler(w http.ResponseWriter, r *http.Request) {
 		"certificate_link": "/api/generate-certificate/" + person.StudentID,
 	}
 	sendJSONResponse(w, response, http.StatusOK)
-}
-
-// Helper function to validate search terms
-func isValidSearchTerm(term string) bool {
-	// Regular expression to match allowed characters and length up to 150
-	validTerm := regexp.MustCompile(`^[a-zA-Z0-9 +\-]{1,150}$`)
-	return validTerm.MatchString(term)
 }
 
 func generateCertificateHandler(w http.ResponseWriter, r *http.Request) {
