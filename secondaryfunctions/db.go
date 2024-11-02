@@ -126,8 +126,6 @@ func GetPerson(searchTerm, requestIP string) *Person {
 			LOWER(REGEXP_REPLACE(?, '[^A-Za-z0-9]', ''))
 			OR LOWER(REGEXP_REPLACE(NID, '[^A-Za-z0-9]', '')) = 
 			LOWER(REGEXP_REPLACE(?, '[^A-Za-z0-9]', ''));
-			OR REGEXP_REPLACE(NID, '[^0-9]', '') = 
-			REGEXP_REPLACE(?, '[^0-9]', '');
 	`
 
 	row := db.QueryRow(query, searchTerm, searchTerm, searchTerm)
