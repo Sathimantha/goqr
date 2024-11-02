@@ -32,6 +32,68 @@ func init() {
 	generator = certificate.NewGenerator(currentDir, filepath.Join(currentDir, "generated_files"), fontPath)
 }
 
+// handleCommandLine processes command-line arguments and executes appropriate actions
+func handleCommandLine() error {
+	if len(os.Args) <= 1 {
+		return fmt.Errorf("no command provided")
+	}
+
+	// Define command-line flags
+	generateCertCmd := flag.NewFlagSet("generate-cert", flag.ExitOnError)
+	cleanupCmd := flag.NewFlagSet("cleanup", flag.ExitOnError)
+
+	// Flags for generate-cert
+	studentIDFlag := generateCertCmd.String("id", "", "The Student ID")
+
+	// Flags for cleanup
+	daysOldFlag := cleanupCmd.Int("days", 10, "Delete files older than specified days")
+
+	// Process commands
+	switch os.Args[1] {
+	case "generate-cert":
+		if err := generateCertCmd.Parse(os.Args[2:]); err != nil {
+			return fmt.Errorf("error parsing generate-cert flags: %v", err)
+		}
+		if *studentIDFlag == "" {
+			return fmt.Errorf("student ID is required")
+		}
+
+		return handleGenerateCert(*studentIDFlag)
+
+	case "cleanup":
+		if err := cleanupCmd.Parse(os.Args[2:]); err != nil {
+			return fmt.Errorf("error parsing cleanup flags: %v", err)
+		}
+
+		return handleCleanup(*daysOldFlag)
+
+	default:
+		return fmt.Errorf("unknown command: %s", os.Args[1])
+	}
+}
+
+// handleGenerateCert handles the certificate generation command
+func handleGenerateCert(studentID string) error {
+	person := secondaryfunctions.GetPerson(studentID, "CLI")
+	if person == nil {
+		return fmt.Errorf("student not found: %s", studentID)
+	}
+
+	if _, err := secondaryfunctions.GenerateCertificate(person.FullName, person.StudentID); err != nil {
+		return fmt.Errorf("failed to generate certificate for %s: %v", person.FullName, err)
+	}
+
+	fmt.Printf("Certificate successfully generated for %s\n", person.FullName)
+	return nil
+}
+
+// handleCleanup handles the cleanup command
+func handleCleanup(days int) error {
+	log.Printf("Starting cleanup of files older than %d days...", days)
+	return secondaryfunctions.CleanupOldFiles(days)
+}
+
+// setupCORS configures CORS settings for the router
 func setupCORS(router *mux.Router) http.Handler {
 	headers := handlers.AllowedHeaders([]string{
 		"X-Requested-With",
@@ -52,6 +114,7 @@ func setupCORS(router *mux.Router) http.Handler {
 	return handlers.CORS(headers, methods, origins)(router)
 }
 
+// getClientIP extracts the client's IP address from the request
 func getClientIP(r *http.Request) string {
 	clientIP := strings.Split(r.RemoteAddr, ":")[0]
 	if forwardedFor := r.Header.Get("X-Forwarded-For"); forwardedFor != "" {
@@ -60,6 +123,7 @@ func getClientIP(r *http.Request) string {
 	return clientIP
 }
 
+// HTTP Handlers
 func homeHandler(w http.ResponseWriter, r *http.Request) {
 	log.Println("Home handler called")
 	http.ServeFile(w, r, filepath.Join(templateDir, "index.html"))
@@ -187,6 +251,7 @@ func SaveStats(studentID string, clientIP string) error {
 	return nil
 }
 
+// Helper functions for JSON responses
 func sendJSONResponse(w http.ResponseWriter, data interface{}, status int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -197,63 +262,58 @@ func sendJSONError(w http.ResponseWriter, message string, status int) {
 	sendJSONResponse(w, map[string]string{"error": message}, status)
 }
 
-func main() {
-	if len(os.Args) > 1 {
-		generateCertCmd := flag.NewFlagSet("generate-cert", flag.ExitOnError)
-		studentIDFlag := generateCertCmd.String("id", "", "The Student ID")
-		generateCertCmd.Parse(os.Args[2:])
+// startServer initializes and starts the HTTP server
+func startServer() error {
+	r := mux.NewRouter()
 
-		switch os.Args[1] {
-		case "generate-cert":
-			if err := generateCertCmd.Parse(os.Args[2:]); err != nil {
-				log.Fatalf("Error parsing flags: %v", err)
+	// Register routes
+	registerRoutes(r)
+
+	// Add CORS middleware
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == "OPTIONS" {
+				w.WriteHeader(http.StatusOK)
+				return
 			}
-			if *studentIDFlag == "" {
-				log.Fatal("Student ID is required")
-			}
-
-			person := secondaryfunctions.GetPerson(*studentIDFlag, "CLI")
-			if person == nil {
-				log.Fatalf("Student not found: %s", *studentIDFlag)
-			}
-
-			if _, err := secondaryfunctions.GenerateCertificate(person.FullName, person.StudentID); err != nil {
-				log.Fatalf("Failed to generate certificate for %s: %v", person.FullName, err)
-			}
-			fmt.Printf("Certificate successfully generated for %s\n", person.FullName)
-			return
-
-		default:
-			log.Fatalf("Unknown command: %s", os.Args[1])
-		}
-	} else {
-		r := mux.NewRouter()
-
-		r.HandleFunc("/", homeHandler).Methods("GET", "OPTIONS")
-		r.HandleFunc("/verify", verifyPageHandler).Methods("GET", "OPTIONS")
-		r.HandleFunc("/api/person", searchPersonHandler).Methods("GET", "OPTIONS")
-		r.HandleFunc("/api/generate-certificate/{studentId}", generateCertificateHandler).Methods("GET", "OPTIONS")
-		r.HandleFunc("/api/verify/{studentId}", verifyStudentHandler).Methods("GET", "OPTIONS")
-
-		r.Use(func(next http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.Method == "OPTIONS" {
-					w.WriteHeader(http.StatusOK)
-					return
-				}
-				next.ServeHTTP(w, r)
-			})
+			next.ServeHTTP(w, r)
 		})
+	})
 
-		corsHandler := setupCORS(r)
+	corsHandler := setupCORS(r)
 
-		certFile := os.Getenv("CERT_FILE")
-		keyFile := os.Getenv("KEY_FILE")
-		if certFile == "" || keyFile == "" {
-			log.Fatal("CERT_FILE and KEY_FILE must be defined in the .env file")
+	// Get SSL certificates
+	certFile := os.Getenv("CERT_FILE")
+	keyFile := os.Getenv("KEY_FILE")
+	if certFile == "" || keyFile == "" {
+		return fmt.Errorf("CERT_FILE and KEY_FILE must be defined in the .env file")
+	}
+
+	// Start server
+	log.Println("Starting server on :5000 with SSL...")
+	return http.ListenAndServeTLS(":5000", certFile, keyFile, corsHandler)
+}
+
+// registerRoutes sets up all the routes for the server
+func registerRoutes(r *mux.Router) {
+	r.HandleFunc("/", homeHandler).Methods("GET", "OPTIONS")
+	r.HandleFunc("/verify", verifyPageHandler).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/person", searchPersonHandler).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/generate-certificate/{studentId}", generateCertificateHandler).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/verify/{studentId}", verifyStudentHandler).Methods("GET", "OPTIONS")
+}
+
+func main() {
+	// Handle command-line arguments if present
+	if len(os.Args) > 1 {
+		if err := handleCommandLine(); err != nil {
+			log.Fatalf("Command line error: %v", err)
 		}
+		return
+	}
 
-		log.Println("Starting server on :5000 with SSL...")
-		log.Fatal(http.ListenAndServeTLS(":5000", certFile, keyFile, corsHandler))
+	// Start server if no command-line arguments
+	if err := startServer(); err != nil {
+		log.Fatalf("Server error: %v", err)
 	}
 }
