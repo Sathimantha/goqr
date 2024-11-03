@@ -5,11 +5,13 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Sathimantha/goqr/certificate"
@@ -238,6 +240,26 @@ func searchPersonHandler(w http.ResponseWriter, r *http.Request) {
 	sendJSONResponse(w, response, http.StatusOK)
 }
 
+// DownloadStatus represents the status of a certificate download
+type DownloadStatus struct {
+	StartTime time.Time
+	FileSize  int64
+	Completed bool
+}
+
+// downloadTracker maintains a map of active downloads
+var downloadTracker = struct {
+	sync.RWMutex
+	downloads map[string]*DownloadStatus
+}{
+	downloads: make(map[string]*DownloadStatus),
+}
+
+// Initialize random seed
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
+
 func generateCertificateHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	studentId := vars["studentId"]
@@ -264,13 +286,98 @@ func generateCertificateHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := SaveStats(person.StudentID, clientIP); err != nil {
-		log.Printf("Error saving stats for %s: %v", person.StudentID, err)
+	// Get file information
+	fileInfo, err := os.Stat(certPath)
+	if err != nil {
+		sendJSONError(w, "Failed to get certificate information", http.StatusInternalServerError)
+		return
 	}
+	fileSize := fileInfo.Size()
 
+	// Generate a unique download ID using math/rand
+	downloadID := fmt.Sprintf("%s-%s-%d", person.StudentID, time.Now().Format("20060102150405"), rand.Int63())
+
+	// Initialize download tracking
+	downloadTracker.Lock()
+	downloadTracker.downloads[downloadID] = &DownloadStatus{
+		StartTime: time.Now(),
+		FileSize:  fileSize,
+		Completed: false,
+	}
+	downloadTracker.Unlock()
+
+	// Set headers for download tracking
 	w.Header().Set("Content-Type", "application/pdf")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s.pdf", person.StudentID))
-	http.ServeFile(w, r, certPath)
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", fileSize))
+	w.Header().Set("X-Download-ID", downloadID)
+
+	// Create a wrapped response writer to track completion
+	downloadWriter := &downloadResponseWriter{
+		ResponseWriter: w,
+		downloadID:     downloadID,
+		written:        0,
+		totalSize:      fileSize,
+	}
+
+	// Serve the file
+	http.ServeFile(downloadWriter, r, certPath)
+
+	// After serving, check if download was completed
+	downloadTracker.RLock()
+	status := downloadTracker.downloads[downloadID]
+	downloadTracker.RUnlock()
+
+	if status != nil && status.Completed {
+		if err := SaveStats(person.StudentID, clientIP); err != nil {
+			log.Printf("Error saving stats for %s: %v", person.StudentID, err)
+		}
+
+		// Log successful download
+		log.Printf("Certificate download completed successfully for student ID: %s, Download ID: %s",
+			person.StudentID, downloadID)
+	} else {
+		// Log incomplete download
+		remark := fmt.Sprintf("Request IP: %s | Incomplete certificate download for student: %s | Download ID: %s",
+			clientIP, person.StudentID, downloadID)
+		secondaryfunctions.LogError("incomplete_download", remark)
+	}
+
+	// Clean up download tracking after a delay
+	go func() {
+		time.Sleep(1 * time.Hour) // Keep tracking info for 1 hour
+		downloadTracker.Lock()
+		delete(downloadTracker.downloads, downloadID)
+		downloadTracker.Unlock()
+	}()
+}
+
+// downloadResponseWriter wraps http.ResponseWriter to track download progress
+type downloadResponseWriter struct {
+	http.ResponseWriter
+	downloadID string
+	written    int64
+	totalSize  int64
+}
+
+func (w *downloadResponseWriter) Write(p []byte) (int, error) {
+	n, err := w.ResponseWriter.Write(p)
+	if err != nil {
+		return n, err
+	}
+
+	w.written += int64(n)
+
+	// Check if download is complete
+	if w.written >= w.totalSize {
+		downloadTracker.Lock()
+		if status := downloadTracker.downloads[w.downloadID]; status != nil {
+			status.Completed = true
+		}
+		downloadTracker.Unlock()
+	}
+
+	return n, nil
 }
 
 func verifyStudentHandler(w http.ResponseWriter, r *http.Request) {
