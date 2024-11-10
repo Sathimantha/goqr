@@ -402,6 +402,18 @@ func verifyStudentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Save verification record as a remark
+	verificationRemark := fmt.Sprintf("Certificate verified via Go server at %s from IP %s",
+		time.Now().Format(time.RFC3339), clientIP)
+
+	if err := secondaryfunctions.AddRemark(studentId, verificationRemark, clientIP); err != nil {
+		remark := fmt.Sprintf("Request IP: %s | Failed to save verification record for student: %s | Error: %v",
+			clientIP, studentId, err)
+		secondaryfunctions.LogError("verification_record_failure", remark)
+		// Continue with the response even if logging fails
+		log.Printf("Failed to save verification record: %v", err)
+	}
+
 	response := map[string]interface{}{
 		"full_name": person.FullName,
 		"NID":       person.NID,
