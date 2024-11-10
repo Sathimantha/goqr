@@ -507,4 +507,6 @@ func main() {
 	if err := startServer(); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
+
+	secondaryfunctions.InitScheduledCleanup(10)
 }
