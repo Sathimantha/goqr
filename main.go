@@ -480,7 +480,15 @@ func startServer() error {
 		return fmt.Errorf("CERT_FILE and KEY_FILE must be defined in the .env file")
 	}
 
-	// Start server
+	// Log server listening status
+	listeningRemark := fmt.Sprintf("Server listening on :5000 with SSL at %s\nCertificate File: %s\nKey File: %s",
+		time.Now().Format(time.RFC3339),
+		certFile,
+		keyFile)
+	if err := secondaryfunctions.LogError("server_listening", listeningRemark); err != nil {
+		log.Printf("Failed to log server listening status: %v", err)
+	}
+
 	log.Println("Starting server on :5000 with SSL...")
 	return http.ListenAndServeTLS(":5000", certFile, keyFile, corsHandler)
 }
@@ -495,6 +503,20 @@ func registerRoutes(r *mux.Router) {
 }
 
 func main() {
+	// Log program startup
+	startupRemark := fmt.Sprintf("Server started at %s\nEnvironment:\n"+
+		"Template Directory: %s\n"+
+		"Certificate File: %s\n"+
+		"Key File: %s",
+		time.Now().Format(time.RFC3339),
+		templateDir,
+		os.Getenv("CERT_FILE"),
+		os.Getenv("KEY_FILE"))
+
+	if err := secondaryfunctions.LogError("server_startup", startupRemark); err != nil {
+		log.Printf("Failed to log server startup: %v", err)
+	}
+
 	// Handle command-line arguments if present
 	if len(os.Args) > 1 {
 		if err := handleCommandLine(); err != nil {
@@ -503,11 +525,14 @@ func main() {
 		return
 	}
 
+	// Initialize scheduled cleanup before starting the server
 	secondaryfunctions.InitScheduledCleanup(10)
 
 	// Start server if no command-line arguments
 	if err := startServer(); err != nil {
+		shutdownRemark := fmt.Sprintf("Server shutdown with error at %s: %v",
+			time.Now().Format(time.RFC3339), err)
+		secondaryfunctions.LogError("server_shutdown", shutdownRemark)
 		log.Fatalf("Server error: %v", err)
 	}
-
 }
