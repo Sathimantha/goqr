@@ -152,13 +152,22 @@ func logCleanupSuccess(daysOld int, stats *CleanupStats) {
 
 // InitScheduledCleanup starts the cleanup scheduler
 func InitScheduledCleanup(daysOld int) {
+	// Run cleanup immediately when starting
+	if err := CleanupOldFiles(daysOld); err != nil {
+		log.Printf("Initial cleanup failed: %v", err)
+	}
+
 	go func() {
 		for {
-			// Wait until midnight
+			// Wait until next midnight
 			now := time.Now()
 			next := now.Add(24 * time.Hour)
 			next = time.Date(next.Year(), next.Month(), next.Day(), 0, 0, 0, 0, next.Location())
-			time.Sleep(next.Sub(now))
+			duration := next.Sub(now)
+
+			log.Printf("Next cleanup scheduled for: %v (in %v)", next.Format(time.RFC3339), duration)
+
+			time.Sleep(duration)
 
 			// Run cleanup
 			if err := CleanupOldFiles(daysOld); err != nil {

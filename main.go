@@ -503,10 +503,11 @@ func main() {
 		return
 	}
 
+	secondaryfunctions.InitScheduledCleanup(10)
+
 	// Start server if no command-line arguments
 	if err := startServer(); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
 
-	secondaryfunctions.InitScheduledCleanup(10)
 }
