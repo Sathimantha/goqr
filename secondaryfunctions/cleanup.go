@@ -5,6 +5,7 @@ package secondaryfunctions
 import (
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -41,6 +42,7 @@ func CleanupOldFiles(daysOld int) error {
 	defer rows.Close()
 
 	currentTime := time.Now()
+	remainingFiles := []string{}
 
 	for rows.Next() {
 		var studentID, remark string
@@ -83,10 +85,10 @@ func CleanupOldFiles(daysOld int) error {
 			continue
 		}
 
-		// Check if the most recent date is older than specified days
-		if currentTime.Sub(mostRecent).Hours() > float64(daysOld*24) {
-			certPath := filepath.Join("generated_files", studentID+".pdf")
+		certPath := filepath.Join("generated_files", studentID+".pdf")
 
+		// Check if file is older than specified days
+		if currentTime.Sub(mostRecent).Hours() > float64(daysOld*24) {
 			// Check if file exists and get its size
 			if fileInfo, err := os.Stat(certPath); err == nil {
 				// Add file size to bytes freed
@@ -102,12 +104,42 @@ func CleanupOldFiles(daysOld int) error {
 				log.Printf("Deleted certificate for %s (last accessed: %s)",
 					studentID, mostRecent.Format("2006-01-02"))
 			}
+		} else {
+			// Keep track of remaining files
+			remainingFiles = append(remainingFiles, certPath)
 		}
 	}
 
 	if err := rows.Err(); err != nil {
 		logCleanupError("Error iterating over rows", err, stats)
 		return fmt.Errorf("error iterating over rows: %v", err)
+	}
+
+	// Randomly delete 20% of remaining files
+	randomDeletionCount := int(float64(len(remainingFiles)) * 0.2)
+	if randomDeletionCount > 0 {
+		// Shuffle the remaining files
+		rand.Shuffle(len(remainingFiles), func(i, j int) {
+			remainingFiles[i], remainingFiles[j] = remainingFiles[j], remainingFiles[i]
+		})
+
+		// Delete the first randomDeletionCount files
+		for i := 0; i < randomDeletionCount; i++ {
+			filePath := remainingFiles[i]
+			if fileInfo, err := os.Stat(filePath); err == nil {
+				// Add file size to bytes freed
+				stats.BytesFreed += fileInfo.Size()
+
+				// Delete the file
+				if err := os.Remove(filePath); err != nil {
+					stats.ErrorCount++
+					log.Printf("Error deleting random file %s: %v", filePath, err)
+					continue
+				}
+				stats.FilesDeleted++
+				log.Printf("Randomly deleted file: %s", filePath)
+			}
+		}
 	}
 
 	stats.Duration = time.Since(stats.StartTime)
