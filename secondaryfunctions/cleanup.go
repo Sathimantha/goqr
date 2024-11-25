@@ -5,6 +5,7 @@ package secondaryfunctions
 import (
 	"fmt"
 	"log"
+	"math"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -31,6 +32,16 @@ func CleanupOldFiles(daysOld int) error {
 		StartTime: time.Now(),
 	}
 
+	// Directory path for generated files
+	generatedFilesDir := "generated_files"
+
+	// Read all files in the directory
+	files, err := os.ReadDir(generatedFilesDir)
+	if err != nil {
+		logCleanupError("Failed to read directory", err, stats)
+		return fmt.Errorf("error reading directory: %v", err)
+	}
+
 	// Query to get all students with remarks
 	query := `SELECT student_id, remark FROM students WHERE remark IS NOT NULL AND remark != ''`
 
@@ -43,7 +54,9 @@ func CleanupOldFiles(daysOld int) error {
 
 	currentTime := time.Now()
 	remainingFiles := []string{}
+	preservedFiles := make(map[string]bool)
 
+	// Mark files to preserve based on database remarks
 	for rows.Next() {
 		var studentID, remark string
 		if err := rows.Scan(&studentID, &remark); err != nil {
@@ -51,8 +64,6 @@ func CleanupOldFiles(daysOld int) error {
 			log.Printf("Error scanning row: %v", err)
 			continue
 		}
-
-		stats.FilesScanned++
 
 		// Find all dates in the remark
 		dates := datePattern.FindAllString(remark, -1)
@@ -70,14 +81,6 @@ func CleanupOldFiles(daysOld int) error {
 			if date.After(mostRecent) {
 				mostRecent = date
 			}
-
-			// Track oldest and newest files for statistics
-			if stats.OldestFileDate.IsZero() || date.Before(stats.OldestFileDate) {
-				stats.OldestFileDate = date
-			}
-			if date.After(stats.NewestFileDate) {
-				stats.NewestFileDate = date
-			}
 		}
 
 		// If we found no valid dates, skip this record
@@ -85,38 +88,33 @@ func CleanupOldFiles(daysOld int) error {
 			continue
 		}
 
-		certPath := filepath.Join("generated_files", studentID+".pdf")
+		certPath := filepath.Join(generatedFilesDir, studentID+".pdf")
 
-		// Check if file is older than specified days
-		if currentTime.Sub(mostRecent).Hours() > float64(daysOld*24) {
-			// Check if file exists and get its size
-			if fileInfo, err := os.Stat(certPath); err == nil {
-				// Add file size to bytes freed
-				stats.BytesFreed += fileInfo.Size()
-
-				// Delete the file
-				if err := os.Remove(certPath); err != nil {
-					stats.ErrorCount++
-					log.Printf("Error deleting file %s: %v", certPath, err)
-					continue
-				}
-				stats.FilesDeleted++
-				log.Printf("Deleted certificate for %s (last accessed: %s)",
-					studentID, mostRecent.Format("2006-01-02"))
-			}
-		} else {
-			// Keep track of remaining files
-			remainingFiles = append(remainingFiles, certPath)
+		// If file is older than specified days, preserve it
+		if currentTime.Sub(mostRecent).Hours() <= float64(daysOld*24) {
+			preservedFiles[certPath] = true
 		}
 	}
 
-	if err := rows.Err(); err != nil {
-		logCleanupError("Error iterating over rows", err, stats)
-		return fmt.Errorf("error iterating over rows: %v", err)
+	// Process all files in the directory
+	for _, file := range files {
+		if !file.IsDir() && filepath.Ext(file.Name()) == ".pdf" {
+			filePath := filepath.Join(generatedFilesDir, file.Name())
+
+			// Skip if file is already preserved
+			if preservedFiles[filePath] {
+				continue
+			}
+
+			remainingFiles = append(remainingFiles, filePath)
+		}
 	}
 
 	// Randomly delete 20% of remaining files
-	randomDeletionCount := int(float64(len(remainingFiles)) * 0.2)
+	randomDeletionCount := int(math.Ceil(float64(len(remainingFiles)) * 0.2))
+	log.Printf("Total remaining files: %d, Files to delete randomly: %d",
+		len(remainingFiles), randomDeletionCount)
+
 	if randomDeletionCount > 0 {
 		// Shuffle the remaining files
 		rand.Shuffle(len(remainingFiles), func(i, j int) {
@@ -124,7 +122,7 @@ func CleanupOldFiles(daysOld int) error {
 		})
 
 		// Delete the first randomDeletionCount files
-		for i := 0; i < randomDeletionCount; i++ {
+		for i := 0; i < randomDeletionCount && i < len(remainingFiles); i++ {
 			filePath := remainingFiles[i]
 			if fileInfo, err := os.Stat(filePath); err == nil {
 				// Add file size to bytes freed
