@@ -18,6 +18,7 @@ import (
 	"github.com/Sathimantha/goqr/secondaryfunctions"
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
+	"github.com/gorilla/websocket"
 )
 
 var (
@@ -33,6 +34,23 @@ var (
 	}{
 		inProgress: make(map[string]bool),
 		completed:  make(map[string]time.Time),
+	}
+)
+
+// Add WebSocket upgrader
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		return true // Or implement proper origin checking
+	},
+}
+
+// Add WebSocket client tracking
+var (
+	clientConnections = struct {
+		sync.RWMutex
+		clients map[string]map[*websocket.Conn]bool // studentID -> connections
+	}{
+		clients: make(map[string]map[*websocket.Conn]bool),
 	}
 )
 
@@ -172,6 +190,7 @@ func handleGenerateCert(idRange string) error {
 	return nil
 }
 
+// Modify initiateAsyncCertificateGeneration to notify clients
 func initiateAsyncCertificateGeneration(studentID string, clientIP string) {
 	certificateGenerationTracker.RLock()
 	if _, inProgress := certificateGenerationTracker.inProgress[studentID]; inProgress {
@@ -179,7 +198,6 @@ func initiateAsyncCertificateGeneration(studentID string, clientIP string) {
 		return
 	}
 	if completedTime, exists := certificateGenerationTracker.completed[studentID]; exists {
-		// If certificate was generated in the last hour, skip regeneration
 		if time.Since(completedTime) < time.Hour {
 			certificateGenerationTracker.RUnlock()
 			return
@@ -187,7 +205,6 @@ func initiateAsyncCertificateGeneration(studentID string, clientIP string) {
 	}
 	certificateGenerationTracker.RUnlock()
 
-	// Try to acquire lock for generation
 	certificateGenerationTracker.Lock()
 	if certificateGenerationTracker.inProgress[studentID] {
 		certificateGenerationTracker.Unlock()
@@ -203,6 +220,9 @@ func initiateAsyncCertificateGeneration(studentID string, clientIP string) {
 			delete(certificateGenerationTracker.inProgress, studentID)
 			certificateGenerationTracker.completed[studentID] = time.Now()
 			certificateGenerationTracker.Unlock()
+
+			// Notify all connected clients
+			notifyClients(studentID, "complete")
 		}()
 
 		_, err := secondaryfunctions.GenerateCertificate(studentID, clientIP)
@@ -210,9 +230,71 @@ func initiateAsyncCertificateGeneration(studentID string, clientIP string) {
 			remark := fmt.Sprintf("Request IP: %s | Failed to pre-generate certificate for student: %s | Error: %v",
 				clientIP, studentID, err)
 			secondaryfunctions.LogError("certificate_pregeneration_failure", remark)
+			notifyClients(studentID, "error")
 			return
 		}
 	}()
+}
+
+// Add function to notify WebSocket clients
+func notifyClients(studentID string, status string) {
+	message := map[string]string{
+		"type":   "certificate_status",
+		"status": status,
+	}
+
+	clientConnections.RLock()
+	if clients, exists := clientConnections.clients[studentID]; exists {
+		for conn := range clients {
+			err := conn.WriteJSON(message)
+			if err != nil {
+				log.Printf("Failed to send WebSocket message: %v", err)
+			}
+		}
+	}
+	clientConnections.RUnlock()
+}
+
+// Add WebSocket connection handler
+func websocketHandler(w http.ResponseWriter, r *http.Request) {
+	studentID := r.URL.Query().Get("studentId")
+	if studentID == "" {
+		http.Error(w, "Student ID is required", http.StatusBadRequest)
+		return
+	}
+
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("WebSocket upgrade failed: %v", err)
+		return
+	}
+
+	// Register client connection
+	clientConnections.Lock()
+	if _, exists := clientConnections.clients[studentID]; !exists {
+		clientConnections.clients[studentID] = make(map[*websocket.Conn]bool)
+	}
+	clientConnections.clients[studentID][conn] = true
+	clientConnections.Unlock()
+
+	// Cleanup on disconnect
+	defer func() {
+		clientConnections.Lock()
+		delete(clientConnections.clients[studentID], conn)
+		if len(clientConnections.clients[studentID]) == 0 {
+			delete(clientConnections.clients, studentID)
+		}
+		clientConnections.Unlock()
+		conn.Close()
+	}()
+
+	// Keep connection alive and handle client messages
+	for {
+		_, _, err := conn.ReadMessage()
+		if err != nil {
+			break
+		}
+	}
 }
 
 func generateSingleCertificate(studentID string) error {
@@ -602,6 +684,7 @@ func registerRoutes(r *mux.Router) {
 	r.HandleFunc("/api/person", searchPersonHandler).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/generate-certificate/{studentId}", generateCertificateHandler).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/verify/{studentId}", verifyStudentHandler).Methods("GET", "OPTIONS")
+	r.HandleFunc("/ws", websocketHandler)
 }
 
 func main() {
