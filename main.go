@@ -25,6 +25,17 @@ var (
 	generator   *certificate.Generator
 )
 
+var (
+	certificateGenerationTracker = struct {
+		sync.RWMutex
+		inProgress map[string]bool
+		completed  map[string]time.Time
+	}{
+		inProgress: make(map[string]bool),
+		completed:  make(map[string]time.Time),
+	}
+)
+
 func init() {
 	currentDir, err := filepath.Abs(".")
 	if err != nil {
@@ -33,6 +44,19 @@ func init() {
 
 	fontPath := "assets/Roboto-Regular.ttf"
 	generator = certificate.NewGenerator(currentDir, filepath.Join(currentDir, "generated_files"), fontPath)
+
+	go func() {
+		for {
+			time.Sleep(time.Hour)
+			certificateGenerationTracker.Lock()
+			for id, completedTime := range certificateGenerationTracker.completed {
+				if time.Since(completedTime) > 24*time.Hour {
+					delete(certificateGenerationTracker.completed, id)
+				}
+			}
+			certificateGenerationTracker.Unlock()
+		}
+	}()
 }
 
 // handleCommandLine processes command-line arguments and executes appropriate actions
@@ -147,6 +171,50 @@ func handleGenerateCert(idRange string) error {
 
 	return nil
 }
+
+func initiateAsyncCertificateGeneration(studentID string, clientIP string) {
+	certificateGenerationTracker.RLock()
+	if _, inProgress := certificateGenerationTracker.inProgress[studentID]; inProgress {
+		certificateGenerationTracker.RUnlock()
+		return
+	}
+	if completedTime, exists := certificateGenerationTracker.completed[studentID]; exists {
+		// If certificate was generated in the last hour, skip regeneration
+		if time.Since(completedTime) < time.Hour {
+			certificateGenerationTracker.RUnlock()
+			return
+		}
+	}
+	certificateGenerationTracker.RUnlock()
+
+	// Try to acquire lock for generation
+	certificateGenerationTracker.Lock()
+	if certificateGenerationTracker.inProgress[studentID] {
+		certificateGenerationTracker.Unlock()
+		return
+	}
+	certificateGenerationTracker.inProgress[studentID] = true
+	certificateGenerationTracker.Unlock()
+
+	// Start async generation
+	go func() {
+		defer func() {
+			certificateGenerationTracker.Lock()
+			delete(certificateGenerationTracker.inProgress, studentID)
+			certificateGenerationTracker.completed[studentID] = time.Now()
+			certificateGenerationTracker.Unlock()
+		}()
+
+		_, err := secondaryfunctions.GenerateCertificate(studentID, clientIP)
+		if err != nil {
+			remark := fmt.Sprintf("Request IP: %s | Failed to pre-generate certificate for student: %s | Error: %v",
+				clientIP, studentID, err)
+			secondaryfunctions.LogError("certificate_pregeneration_failure", remark)
+			return
+		}
+	}()
+}
+
 func generateSingleCertificate(studentID string) error {
 	person := secondaryfunctions.GetPerson(studentID, "CLI")
 	if person == nil {
@@ -226,6 +294,9 @@ func searchPersonHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Initiate async certificate generation
+	initiateAsyncCertificateGeneration(person.StudentID, clientIP)
+
 	phoneNo := person.PhoneNo
 	if len(phoneNo) > 4 {
 		phoneNo = strings.Repeat("*", len(phoneNo)-4) + phoneNo[len(phoneNo)-4:]
@@ -266,6 +337,7 @@ func generateCertificateHandler(w http.ResponseWriter, r *http.Request) {
 	clientIP := getClientIP(r)
 	log.Printf("Generate certificate handler called with student ID: %s\n", studentId)
 
+	// First verify that the student exists
 	person := secondaryfunctions.GetPerson(studentId, clientIP)
 	if person == nil {
 		remark := fmt.Sprintf("Request IP: %s | Failed to generate certificate for student ID: %s | Student not found",
@@ -275,15 +347,45 @@ func generateCertificateHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	certPath := filepath.Join("generated_files", person.StudentID+".pdf")
+	// Check if certificate is currently being generated
+	certificateGenerationTracker.RLock()
+	if certificateGenerationTracker.inProgress[studentId] {
+		certificateGenerationTracker.RUnlock()
+		// Return a 202 Accepted status with a message
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": "Certificate generation in progress, please try again in a few moments",
+		})
+		return
+	}
+	certificateGenerationTracker.RUnlock()
+
+	// Check if the certificate file already exists
+	certPath := filepath.Join("generated_files", studentId+".pdf")
 	if _, err := os.Stat(certPath); os.IsNotExist(err) {
+		// Certificate doesn't exist, start generation
+		certificateGenerationTracker.Lock()
+		certificateGenerationTracker.inProgress[studentId] = true
+		certificateGenerationTracker.Unlock()
+
+		// Generate certificate
 		if _, err := secondaryfunctions.GenerateCertificate(person.FullName, person.StudentID); err != nil {
+			certificateGenerationTracker.Lock()
+			delete(certificateGenerationTracker.inProgress, studentId)
+			certificateGenerationTracker.Unlock()
+
 			remark := fmt.Sprintf("Request IP: %s | Failed to generate certificate for student: %s | Error: %v",
 				clientIP, person.StudentID, err)
 			secondaryfunctions.LogError("certificate_generation_error", remark)
 			sendJSONError(w, "Failed to generate certificate", http.StatusInternalServerError)
 			return
 		}
+
+		certificateGenerationTracker.Lock()
+		delete(certificateGenerationTracker.inProgress, studentId)
+		certificateGenerationTracker.completed[studentId] = time.Now()
+		certificateGenerationTracker.Unlock()
 	}
 
 	// Get file information
@@ -294,7 +396,7 @@ func generateCertificateHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	fileSize := fileInfo.Size()
 
-	// Generate a unique download ID using math/rand
+	// Generate a unique download ID
 	downloadID := fmt.Sprintf("%s-%s-%d", person.StudentID, time.Now().Format("20060102150405"), rand.Int63())
 
 	// Initialize download tracking
@@ -306,7 +408,7 @@ func generateCertificateHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	downloadTracker.Unlock()
 
-	// Set headers for download tracking
+	// Set headers for download
 	w.Header().Set("Content-Type", "application/pdf")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s.pdf", person.StudentID))
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", fileSize))
