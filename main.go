@@ -333,7 +333,10 @@ func setupCORS(router *mux.Router) http.Handler {
 		"DELETE",
 		"OPTIONS",
 	})
-	origins := handlers.AllowedOrigins([]string{"https://cpcglobal.org"})
+
+	origins := handlers.AllowedOrigins([]string{
+		"https://cpcglobal.org",
+		"https://cdn.cpcglobal.org"})
 
 	return handlers.CORS(headers, methods, origins)(router)
 }
@@ -682,7 +685,7 @@ func registerRoutes(r *mux.Router) {
 	r.HandleFunc("/", homeHandler).Methods("GET", "OPTIONS")
 	r.HandleFunc("/verify", verifyPageHandler).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/person", searchPersonHandler).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/generate-certificate/{studentId}", generateCertificateHandler).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/generate-certificate/{studentId}", generateCertificateHandler).Methods("GET", "HEAD", "OPTIONS")
 	r.HandleFunc("/api/verify/{studentId}", verifyStudentHandler).Methods("GET", "OPTIONS")
 	r.HandleFunc("/ws", websocketHandler)
 }
